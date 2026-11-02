@@ -1,0 +1,71 @@
+name: Extraction eval
+
+# Runs the golden set against the live extractor when prompts or schemas change,
+# and weekly to catch silent model changes on the free tiers.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/sarkari_core/**"
+      - "src/sarkari_crawler/extractors/**"
+      - "src/sarkari_crawler/pdf.py"
+      - "tests/golden/**"
+  schedule:
+    - cron: "30 3 * * 1" # Mondays 09:00 IST
+  workflow_dispatch:
+    inputs:
+      extractor:
+        description: "Extractor spec override, e.g. groq:<model>"
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eval
+  cancel-in-progress: false
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    env:
+      SARKARI_EXTRACTORS: ${{ inputs.extractor || vars.SARKARI_EXTRACTORS }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      MIN_ACCURACY: ${{ vars.EVAL_MIN_ACCURACY || '0.85' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for verified golden cases
+        id: golden
+        run: |
+          if compgen -G "tests/golden/*/expected.json" > /dev/null; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::No verified golden cases yet; skipping eval."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-python@v5
+        if: steps.golden.outputs.present == 'true'
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install Tesseract (scanned PDFs)
+        if: steps.golden.outputs.present == 'true'
+        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-hin
+      - if: steps.golden.outputs.present == 'true'
+        run: pip install -e ".[crawler]"
+      - name: Run eval
+        if: steps.golden.outputs.present == 'true'
+        run: |
+          python -m sarkari_crawler.eval \
+            --json-out eval-report.json \
+            --save-outputs eval-outputs \
+            --min-accuracy "$MIN_ACCURACY"
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.golden.outputs.present == 'true'
+        with:
+          name: eval-report
+          path: |
+            eval-report.json
+            eval-outputs/
+          retention-days: 30

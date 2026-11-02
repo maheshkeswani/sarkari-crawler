@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sarkari-crawler"
+version = "0.2.0"
+description = "Crawler, PDF pipeline and LLM extraction for central government job notifications"
+requires-python = ">=3.10"
+# The base install is only `sarkari_core` (schemas, rules, extractor interface),
+# which is what sarkari-web depends on. Crawler dependencies live in the extra.
+dependencies = [
+    "pydantic>=2.7,<3",
+]
+
+[project.optional-dependencies]
+crawler = [
+    "httpx>=0.27,<1",
+    "pymupdf>=1.24,<2",
+    "beautifulsoup4>=4.12,<5",
+    "psycopg[binary]>=3.2,<4",
+]
+dev = [
+    "sarkari-crawler[crawler]",
+    "pytest>=8",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+sarkari_core = ["prompts/*.txt"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
